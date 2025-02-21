@@ -119,8 +119,8 @@ class ESLBackBone(nn.Module):
     def forward(self, events, frames):
         x1 = self.image_d(frames)
 
-        event_out = self.event_c1(events)
-        event_out = torch.sigmoid(event_out)
+        event_out = self.event_c1(events)       # TODO: random
+        event_out = torch.sigmoid(event_out)    # TODO: relu or siren
         event_out = self.event_c2(event_out)
         event_out = torch.sigmoid(event_out)
 

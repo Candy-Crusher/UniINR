@@ -62,7 +62,7 @@ def lineal_to_rgb(matrix, gamma=2.2):
 
 
 def main(args):
-    set_trace()
+    # set_trace()
     # main
     avi_files = sorted(listdir(FLAGS.dataset_path))
     assert FLAGS.dataset in ["EvUnrall", "Fastec"], f"{FLAGS.dataset} is not supported."
@@ -95,6 +95,7 @@ def main(args):
         info(f"  events_folder:         {event_size}, {events[0]}, {events[-1]}")
         info(f"  rolling_folder:        {rolling_size}, {rolling[0]}, {rolling[-1]}")
         # f"{resize_size} != {event_size / 2 + 1}"
+        f"resize_size: {resize_size}, event_size: {event_size}, rolling_size: {rolling_size}"
         assert (resize_size == event_size / 2 + 1) or (resize_size == event_size + 1)
         assert rolling_size + 260 == resize_size, f"{rolling_size} != {resize_size - 260}"
 
@@ -125,5 +126,5 @@ def main(args):
 if __name__ == "__main__":
     import pudb
 
-    pudb.set_trace()
+    # pudb.set_trace()
     app.run(main)

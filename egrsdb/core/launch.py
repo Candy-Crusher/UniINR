@@ -24,6 +24,9 @@ from egrsdb.losses import get_loss, get_metric
 from egrsdb.models import get_model
 from egrsdb.visualize import get_visulization
 
+from torch.profiler import profile, record_function, ProfilerActivity
+
+
 FLAGS = flags.FLAGS
 
 
@@ -67,7 +70,8 @@ class ParallelLaunch:
     def run(self):
         # 0. Init
         train_dataset, val_dataset = get_dataset(self.config.DATASET)
-        model = get_model(self.config.MODEL)
+        with record_function("get_model"):
+            model = get_model(self.config.MODEL)
         criterion = get_loss(self.config.LOSS)
         metrics = get_metric(self.config.METRICS)
         opt = Optimizer(self.config.OPTIMIZER, model)
@@ -121,6 +125,59 @@ class ParallelLaunch:
         )
         # 3. if test only
         if self.config.TEST_ONLY:
+            profiling = False
+            if profiling:
+                model.eval()
+                # Create a dummy input
+                dump_input = {
+                    "video_name": ["24209_1_13_360_145"],
+                    "rolling_blur_frame_name": ["00000"],
+                    "events": torch.randn(1, 52, 360, 360),
+                    "events_for_gs_sharp_frames": ["NONE"],
+                    "rolling_blur_frame_color": torch.randn(1, 3, 360, 360),
+                    "rolling_blur_frame_gray": ["NONE"],
+                    "rolling_blur_start_time": ["NONE"],
+                    "rolling_blur_end_time": ["NONE"],
+                    "rolling_blur_exposure_time": ["NONE"],
+                    "rolling_sharp_pred_frames": ["NONE"],
+                    "rolling_blur_pred_frame": ["NONE"],
+                    "global_sharp_frame_timestamps": torch.randn(1),
+                    "global_sharp_frames": torch.randn(1, 1, 3, 360, 360),
+                    "global_sharp_pred_frames": ["NONE"],
+                    "global_sharp_pred_frames_differential": ["NONE"],
+                }
+                # Warm-up
+                for _ in range(10):
+                    start = time.time()
+                    if self.config.IS_CUDA:
+                        dump_input = move_tensors_to_cuda(dump_input)
+                    with torch.no_grad():
+                        if self.config.MIX_PRECISION:
+                            with torch.cuda.amp.autocast():
+                                outputs = model(dump_input)
+                        else:
+                            outputs = model(dump_input)
+                        torch.cuda.synchronize()
+                        end = time.time()
+                        print('Time:{}ms'.format((end-start)*1000))
+
+
+                with torch.autograd.profiler.profile(enabled=True, use_cuda=True, record_shapes=False, profile_memory=False) as prof:
+                    start = time.time()
+                    if self.config.IS_CUDA:
+                        dump_input = move_tensors_to_cuda(dump_input)
+                    with torch.no_grad():
+                        if self.config.MIX_PRECISION:
+                            with torch.cuda.amp.autocast():
+                                outputs = model(dump_input)
+                        else:
+                            outputs = model(dump_input)
+                        torch.cuda.synchronize()
+                        end = time.time()
+                print('Time:{}ms'.format((end-start)*1000))
+                print(prof.table())
+                prof.export_chrome_trace('./resnet_profile.json')
+                return
             self.valid(val_loader, model, criterion, metrics, 0)
             return
         # 4. train

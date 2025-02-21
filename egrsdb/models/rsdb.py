@@ -1,10 +1,13 @@
 import torch
 from absl.logging import info
 from torch import nn
+from torch.profiler import record_function
 
 from egrsdb.functions.rolling_coords import get_t_global_shutter_coordinate, get_t_rolling_shutter_coordinate
 from egrsdb.functions.timestamp import get_gs_sharp_timestamps, get_rs_shape_timestamps
 from egrsdb.models.meta.unet_conv_theta import UNetCon1x1WithTheta
+
+import time
 
 DEBUG = False
 
@@ -115,6 +118,17 @@ class RollingShutterDeblur(nn.Module):
     def forward(self, batch):
         # 1. get batch
         # B, C, H, W
+        # with record_function("get_batch"):
+        #     if self.image_channel == 1:
+        #         blur_frame = batch["rolling_blur_frame_gray"]
+        #     else:
+        #         blur_frame = batch["rolling_blur_frame_color"]
+        #     device = blur_frame.device
+        #     gs_sharp_coordinates = [c.to(device) for c in self.gs_sharp_coordinates]
+        #     rs_sharp_coordinates = [c.to(device) for c in self.rs_sharp_coordinates]
+        #     B, C, H, W = blur_frame.shape
+        #     # B, C, H, W
+        #     events = batch["events"]
         if self.image_channel == 1:
             blur_frame = batch["rolling_blur_frame_gray"]
         else:
@@ -126,6 +140,8 @@ class RollingShutterDeblur(nn.Module):
         # B, C, H, W
         events = batch["events"]
         # 2. INR generation
+        # with record_function("encoder"):
+        #     inr = self.encoder(events, blur_frame)
         inr = self.encoder(events, blur_frame)
 
         # For decode part, the input is only a coordinate.
@@ -135,8 +151,10 @@ class RollingShutterDeblur(nn.Module):
         gs_sharp_frame_differential_list = []
         # random select a time stamps
         for i in range(len(self.gs_sharp_timestamps)):
+            # loop_start_time = time.time()
             gs_timestamp = self.gs_sharp_timestamps[i]
             gs_s_coordinate = gs_sharp_coordinates[i]
+            # import ipdb; ipdb.set_trace()
             if DEBUG:
                 # C, H, W
                 input_global_sharp_frame_timestamps = batch["global_sharp_frame_timestamps"][0][i]
@@ -152,6 +170,8 @@ class RollingShutterDeblur(nn.Module):
             gs_s_coordinate = gs_s_coordinate.unsqueeze(0).expand(B, -1, -1, -1)
             gs_s_coordinate = gs_s_coordinate.detach().requires_grad_(True).cuda()
             # for coords inference
+            # with record_function("decoder_gs_sharp"):
+                # gs_s_frame_t = inr(gs_s_coordinate)
             gs_s_frame_t = inr(gs_s_coordinate)
             if self.training:
                 gs_s_frame_t_d = torch.autograd.grad(
@@ -170,6 +190,9 @@ class RollingShutterDeblur(nn.Module):
 
             gs_sharp_frame_list.append(gs_s_frame_t)
             gs_sharp_frame_differential_list.append(gs_s_frame_t_d)
+            
+            # loop_end_time = time.time()
+            # print(f"Loop {i} time: {loop_end_time - loop_start_time:.4f} seconds")
         # (B, C, H, W) N -> N B C H W
         gs_sharp_frame_list = torch.stack(gs_sharp_frame_list)
         # N B C H W -> B N C H W
@@ -177,32 +200,33 @@ class RollingShutterDeblur(nn.Module):
         # (B, C, H, W) N -> N B C H W
         gs_sharp_frame_differential_list = torch.stack(gs_sharp_frame_differential_list)
         batch["global_sharp_pred_frames_differential"] = gs_sharp_frame_differential_list.permute(1, 0, 2, 3, 4)
-        # 3.2 decode the rs sharp
-        rs_accumulate = 0
-        rolling_sharp_pred_frames = []
-        for i in range(len(self.rs_sharp_timestamps)):
-            rs_start, rs_end = self.rs_sharp_timestamps[i]
-            # rs_s_coordinate: 3, H, W
-            rs_s_coordinate = rs_sharp_coordinates[i]
-            if DEBUG:
-                if self.coords_dim == 3:
-                    xy, t = (rs_s_coordinate[0:2, :, :], rs_s_coordinate[2, :, :])
-                else:
-                    t = rs_s_coordinate
-                assert abs(t.min().item() - rs_start) < 1e-6
-                assert abs(t.max().item() - rs_end) < 1e-6
-                info(f"RS [{i}]: {rs_start} {rs_end}")
-            # C, H, W -> B, C, H, W
-            rs_s_coordinate = rs_s_coordinate.unsqueeze(0).expand(B, -1, -1, -1)
-            rs_s_frame = inr(rs_s_coordinate)
-            rolling_sharp_pred_frames.append(rs_s_frame)
-            rs_accumulate = rs_accumulate + rs_s_frame
-        rs_blur_reconstructed = rs_accumulate / len(self.rs_sharp_timestamps)
-        # 1, 1, 256, 256
-        if self.intermediate_visualization:
-            rolling_sharp_pred_frames = torch.stack(rolling_sharp_pred_frames)
-            batch["rolling_sharp_pred_frames"] = rolling_sharp_pred_frames.permute(1, 0, 2, 3, 4)
-        batch["rolling_blur_pred_frame"] = rs_blur_reconstructed
+        # # 3.2 decode the rs sharp
+        # rs_accumulate = 0
+        # rolling_sharp_pred_frames = []
+        # for i in range(len(self.rs_sharp_timestamps)):
+        #     rs_start, rs_end = self.rs_sharp_timestamps[i]
+        #     # rs_s_coordinate: 3, H, W
+        #     rs_s_coordinate = rs_sharp_coordinates[i]
+        #     if DEBUG:
+        #         if self.coords_dim == 3:
+        #             xy, t = (rs_s_coordinate[0:2, :, :], rs_s_coordinate[2, :, :])
+        #         else:
+        #             t = rs_s_coordinate
+        #         assert abs(t.min().item() - rs_start) < 1e-6
+        #         assert abs(t.max().item() - rs_end) < 1e-6
+        #         info(f"RS [{i}]: {rs_start} {rs_end}")
+        #     # C, H, W -> B, C, H, W
+        #     rs_s_coordinate = rs_s_coordinate.unsqueeze(0).expand(B, -1, -1, -1)
+        #     with record_function("decoder_rs_sharp"):
+        #         rs_s_frame = inr(rs_s_coordinate)
+        #     rolling_sharp_pred_frames.append(rs_s_frame)
+        #     rs_accumulate = rs_accumulate + rs_s_frame
+        # rs_blur_reconstructed = rs_accumulate / len(self.rs_sharp_timestamps)
+        # # 1, 1, 256, 256
+        # if self.intermediate_visualization:
+        #     rolling_sharp_pred_frames = torch.stack(rolling_sharp_pred_frames)
+        #     batch["rolling_sharp_pred_frames"] = rolling_sharp_pred_frames.permute(1, 0, 2, 3, 4)
+        # batch["rolling_blur_pred_frame"] = rs_blur_reconstructed
         return batch
 
     def _info(self):

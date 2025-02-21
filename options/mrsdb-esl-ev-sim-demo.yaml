@@ -1,7 +1,7 @@
 JOBS: 12
 TEST_ONLY: False
 LOG_INTERVAL: 10
-TRAIN_BATCH_SIZE: 1
+TRAIN_BATCH_SIZE: 2
 VAL_BATCH_SIZE: 1
 START_EPOCH: 0
 END_EPOCH: 500
@@ -30,7 +30,8 @@ METRICS:
     input_is_linear: false
 DATASET:
   NAME: evunroll-simulated
-  root: "dataset/4-EvUnRoll-RS-Correction/"
+  # root: "dataset/4-EvUnRoll-RS-Correction/"
+  root: "/mnt/sdb/Gev-RS/"
   events_moment: 52
   crop_size:
     - 360
