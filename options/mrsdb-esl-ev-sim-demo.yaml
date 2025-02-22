@@ -9,7 +9,7 @@ VAL_INTERVAL: 1
 MODEL_SANING_INTERVAL: 20
 MIX_PRECISION: true
 RESUME:
-  PATH:
+  PATH: # "/home/xiaoshan/work/RS/UniINR/logs/mrsdb-esl-ev-sim-demo/model_best.pth.tar"
   TYPE:
   SET_EPOCH: true
 LAUNCHER: "ParallelLaunch"

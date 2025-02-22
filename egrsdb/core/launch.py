@@ -72,6 +72,14 @@ class ParallelLaunch:
         train_dataset, val_dataset = get_dataset(self.config.DATASET)
         with record_function("get_model"):
             model = get_model(self.config.MODEL)
+        # Set requires_grad to False for embedding layers
+        for param in model.encoder.encoder.image_d.parameters():
+            param.requires_grad = False
+        for param in model.encoder.encoder.event_c1.parameters():
+            param.requires_grad = False
+        for param in model.encoder.encoder.event_c2.parameters():
+            param.requires_grad = False
+
         criterion = get_loss(self.config.LOSS)
         metrics = get_metric(self.config.METRICS)
         opt = Optimizer(self.config.OPTIMIZER, model)
